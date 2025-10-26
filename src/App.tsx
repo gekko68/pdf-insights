@@ -14,6 +14,8 @@ import SidePanel from './components/SidePanel';
 import PDFViewer from './components/PDFViewer';
 import Toolbar, { ToolType } from './components/Toolbar';
 import LeftSidebar, { HighlightConfig } from './components/LeftSidebar';
+import { LLMConfig } from './types/llm';
+import { ConfigService } from './services/configService';
 import { formatPdfDate } from './utils/pdfUtils';
 import { usePdfData } from './hooks/usePdfData';
 import { useHighlights } from './hooks/useHighlights';
@@ -47,11 +49,27 @@ function App() {
   const { highlightRects, setHighlightRects } = useHighlights();
   const [selectedObject, setSelectedObject] = useState<{ type: 'text' | 'image'; index: number } | null>(null);
   const [objectSubTab, setObjectSubTab] = React.useState<'text' | 'images'>('text');
-  const [highlightConfig, setHighlightConfig] = useState<HighlightConfig>({
-    fillColor: '#ff0000',
-    borderColor: '#b00000',
-    opacity: 0.8,
+  // Load saved config on mount
+  const [highlightConfig, setHighlightConfig] = useState<HighlightConfig>(() => {
+    const saved = ConfigService.loadConfig();
+    return saved.highlight;
   });
+  const [llmConfig, setLLMConfig] = useState<LLMConfig>(() => {
+    const saved = ConfigService.loadConfig();
+    return saved.llm;
+  });
+
+  // Auto-save highlight config changes
+  const handleHighlightConfigChange = (config: HighlightConfig) => {
+    setHighlightConfig(config);
+    ConfigService.updateHighlightConfig(config);
+  };
+
+  // Auto-save LLM config changes
+  const handleLLMConfigChange = (config: LLMConfig) => {
+    setLLMConfig(config);
+    ConfigService.updateLLMConfig(config);
+  };
 
   // Use the custom hook for all PDF data and objects
   const {
@@ -399,7 +417,9 @@ function App() {
         isOpen={leftSidebarOpen}
         onToggle={() => setLeftSidebarOpen(!leftSidebarOpen)}
         highlightConfig={highlightConfig}
-        onHighlightConfigChange={setHighlightConfig}
+        onHighlightConfigChange={handleHighlightConfigChange}
+        llmConfig={llmConfig}
+        onLLMConfigChange={handleLLMConfigChange}
       />
 
       {/* Toolbar - only show when PDF is loaded */}

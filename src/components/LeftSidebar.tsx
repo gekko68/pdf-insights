@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import './LeftSidebar.css';
+import { LLM_PROVIDERS, LLMConfig } from '../types/llm';
+import { ConfigService } from '../services/configService';
 
 export interface HighlightConfig {
   fillColor: string;
@@ -12,6 +14,9 @@ interface LeftSidebarProps {
   onToggle: () => void;
   highlightConfig: HighlightConfig;
   onHighlightConfigChange: (config: HighlightConfig) => void;
+  llmConfig: LLMConfig;
+  onLLMConfigChange: (config: LLMConfig) => void;
+  onConfigImported?: () => void;
 }
 
 const LeftSidebar: React.FC<LeftSidebarProps> = ({
@@ -19,8 +24,34 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({
   onToggle,
   highlightConfig,
   onHighlightConfigChange,
+  llmConfig,
+  onLLMConfigChange,
+  onConfigImported,
 }) => {
   const [activeSection, setActiveSection] = useState<string>('configuration');
+  const [showApiKey, setShowApiKey] = useState<boolean>(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleExportConfig = () => {
+    ConfigService.exportToFile();
+  };
+
+  const handleImportConfig = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      try {
+        const config = await ConfigService.importFromFile(file);
+        onLLMConfigChange(config.llm);
+        onHighlightConfigChange(config.highlight);
+        if (onConfigImported) {
+          onConfigImported();
+        }
+        alert('Configuration imported successfully!');
+      } catch (error) {
+        alert('Failed to import configuration: ' + (error as Error).message);
+      }
+    }
+  };
 
   const handleColorChange = (field: 'fillColor' | 'borderColor', value: string) => {
     onHighlightConfigChange({
@@ -188,6 +219,140 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({
             )}
           </div>
 
+          {/* LLM Configuration Section */}
+          <div className="sidebar-section">
+            <button
+              className={`section-header ${activeSection === 'llm' ? 'active' : ''}`}
+              onClick={() => setActiveSection(activeSection === 'llm' ? '' : 'llm')}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                <path d="M8 10h.01M12 10h.01M16 10h.01" />
+              </svg>
+              <span>LLM Configuration</span>
+              <svg
+                className={`chevron ${activeSection === 'llm' ? 'expanded' : ''}`}
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </button>
+
+            {activeSection === 'llm' && (
+              <div className="section-content">
+                <div className="config-group">
+                  <label className="config-label">Provider</label>
+                  <select
+                    value={llmConfig.provider}
+                    onChange={(e) => {
+                      const provider = LLM_PROVIDERS.find(p => p.id === e.target.value);
+                      onLLMConfigChange({
+                        ...llmConfig,
+                        provider: e.target.value,
+                        model: provider?.models[0]?.id || '',
+                      });
+                    }}
+                    className="select-input"
+                  >
+                    {LLM_PROVIDERS.map((provider) => (
+                      <option key={provider.id} value={provider.id}>
+                        {provider.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="config-group">
+                  <label className="config-label">Model</label>
+                  <select
+                    value={llmConfig.model}
+                    onChange={(e) => onLLMConfigChange({ ...llmConfig, model: e.target.value })}
+                    className="select-input"
+                  >
+                    {LLM_PROVIDERS.find(p => p.id === llmConfig.provider)?.models.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {LLM_PROVIDERS.find(p => p.id === llmConfig.provider)?.requiresApiKey && (
+                  <div className="config-group">
+                    <label className="config-label">
+                      API Key
+                      <button
+                        className="show-hide-btn"
+                        onClick={() => setShowApiKey(!showApiKey)}
+                        type="button"
+                      >
+                        {showApiKey ? '👁️' : '👁️‍🗨️'}
+                      </button>
+                    </label>
+                    <input
+                      type={showApiKey ? 'text' : 'password'}
+                      value={llmConfig.apiKey || ''}
+                      onChange={(e) => onLLMConfigChange({ ...llmConfig, apiKey: e.target.value })}
+                      placeholder="Enter your API key"
+                      className="color-text-input"
+                    />
+                    <div style={{ fontSize: '0.75rem', color: '#ffb300', marginTop: '4px' }}>
+                      🔒 Stored locally in browser only
+                    </div>
+                  </div>
+                )}
+
+                {llmConfig.provider === 'ollama' && (
+                  <div className="config-group">
+                    <label className="config-label">Ollama Endpoint</label>
+                    <input
+                      type="text"
+                      value={llmConfig.apiEndpoint || 'http://localhost:11434'}
+                      onChange={(e) => onLLMConfigChange({ ...llmConfig, apiEndpoint: e.target.value })}
+                      placeholder="http://localhost:11434"
+                      className="color-text-input"
+                    />
+                  </div>
+                )}
+
+                <div className="config-group" style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.2)' }}>
+                  <label className="config-label">Configuration Backup</label>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      className="reset-btn"
+                      onClick={handleExportConfig}
+                      style={{ flex: 1 }}
+                    >
+                      📥 Export Config
+                    </button>
+                    <button
+                      className="reset-btn"
+                      onClick={() => fileInputRef.current?.click()}
+                      style={{ flex: 1 }}
+                    >
+                      📤 Import Config
+                    </button>
+                  </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".json"
+                    onChange={handleImportConfig}
+                    style={{ display: 'none' }}
+                  />
+                  <div style={{ fontSize: '0.75rem', color: '#ffb300', marginTop: '8px' }}>
+                    💾 Save your API keys and settings to a JSON file
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Placeholder for future sections */}
           <div className="sidebar-section">
             <button className="section-header disabled">
@@ -196,17 +361,6 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({
                 <polyline points="14 2 14 8 20 8" />
               </svg>
               <span>Export Options</span>
-              <span className="coming-soon">Coming Soon</span>
-            </button>
-          </div>
-
-          <div className="sidebar-section">
-            <button className="section-header disabled">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                <line x1="9" y1="3" x2="9" y2="21" />
-              </svg>
-              <span>Layout Options</span>
               <span className="coming-soon">Coming Soon</span>
             </button>
           </div>

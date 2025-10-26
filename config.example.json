@@ -1,0 +1,15 @@
+{
+  "llm": {
+    "provider": "anthropic",
+    "model": "claude-3-5-sonnet-20241022",
+    "apiKey": "sk-ant-api03-YOUR-API-KEY-HERE",
+    "apiEndpoint": ""
+  },
+  "highlight": {
+    "fillColor": "#ff0000",
+    "borderColor": "#b00000",
+    "opacity": 0.8
+  },
+  "version": "1.0.0",
+  "lastUpdated": "2025-01-26T00:00:00.000Z"
+}

@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { pdfjs } from 'react-pdf';
 import { PDFPageObjects, PDFTextObject, PDFImageObject } from '../types/pdf';
+import { StorageService } from '../services/storageService';
 
 export function usePdfData() {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
@@ -10,10 +11,22 @@ export function usePdfData() {
   const [pageObjects, setPageObjects] = useState<PDFPageObjects>({ texts: [], images: [] });
   const [pageObjectsByPage, setPageObjectsByPage] = useState<{ [pageNum: number]: PDFPageObjects }>({});
 
+  // Load cached images when PDF changes
   useEffect(() => {
-    setPageObjects({ texts: [], images: [] });
-    setPageObjectsByPage({});
-  }, [pdfFile, pdfData]);
+    if (pdfFile) {
+      const cached = StorageService.loadImages(pdfFile.name);
+      if (cached) {
+        setPageObjectsByPage(cached);
+        console.log('Loaded cached images for', pdfFile.name);
+      } else {
+        setPageObjects({ texts: [], images: [] });
+        setPageObjectsByPage({});
+      }
+    } else {
+      setPageObjects({ texts: [], images: [] });
+      setPageObjectsByPage({});
+    }
+  }, [pdfFile]);
 
   const onDocumentLoadSuccess = useCallback(async (pdf: any) => {
     setNumPages(pdf.numPages);
@@ -114,15 +127,51 @@ export function usePdfData() {
           // Case: first arg is image name
           name = args[0];
 
-          // Try to extract the image data
+          // Try to extract the image data and convert to data URL
           try {
-            const resources = await page.objs;
-            const xobjs = resources.get(name);
-            if (xobjs) {
-              console.log('Found image resource:', name, xobjs);
+            // Get the image from page resources
+            const objs = await page.objs;
+
+            if (name) {
+              const imageName = name; // TypeScript narrowing
+              // Wait for the object to be loaded
+              await new Promise<void>((resolve) => {
+                if (objs.has(imageName)) {
+                  resolve();
+                } else {
+                  const checkInterval = setInterval(() => {
+                    if (objs.has(imageName)) {
+                      clearInterval(checkInterval);
+                      resolve();
+                    }
+                  }, 50);
+                  // Timeout after 2 seconds
+                  setTimeout(() => {
+                    clearInterval(checkInterval);
+                    resolve();
+                  }, 2000);
+                }
+              });
+
+              const imgData = objs.get(imageName);
+              if (imgData && imgData.data) {
+                // Create canvas to convert image data to data URL
+                const canvas = document.createElement('canvas');
+                canvas.width = imgData.width;
+                canvas.height = imgData.height;
+                const ctx = canvas.getContext('2d');
+
+                if (ctx) {
+                  const imageData = ctx.createImageData(imgData.width, imgData.height);
+                  const data = new Uint8ClampedArray(imgData.data);
+                  imageData.data.set(data);
+                  ctx.putImageData(imageData, 0, 0);
+                  dataUrl = canvas.toDataURL('image/png');
+                }
+              }
             }
           } catch (e) {
-            console.log('Could not get image resource:', e);
+            console.log('Could not extract image data:', e);
           }
 
           // Use CTM for position
@@ -154,12 +203,19 @@ export function usePdfData() {
     }
 
     setPageObjects({ texts, images });
-    setPageObjectsByPage(prev => ({ ...prev, [pageNumber]: { texts, images } }));
+    setPageObjectsByPage(prev => {
+      const updated = { ...prev, [pageNumber]: { texts, images } };
+      // Save to localStorage if we have a PDF file
+      if (pdfFile) {
+        StorageService.saveImages(pdfFile.name, updated);
+      }
+      return updated;
+    });
 
     // Log all objects found in the page
     console.log(`Page ${pageNumber} - Found ${texts.length} text objects and ${images.length} images`);
     console.log('Images:', images);
-  }, [pdfData]);
+  }, [pdfData, pdfFile]);
 
   return {
     pdfFile,
