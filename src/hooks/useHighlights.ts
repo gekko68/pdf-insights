@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { pdfjs } from 'react-pdf';
 
 export function useHighlights() {
   const [highlightRects, setHighlightRects] = useState<DOMRect[]>([]);
@@ -156,7 +157,6 @@ export function useHighlights() {
         setHighlightRects([]);
         return;
       }
-      const { pdfjs } = await import('react-pdf');
       const loadingTask = pdfjs.getDocument(pdfData.slice().buffer as ArrayBuffer);
       const pdf = await loadingTask.promise;
       const page = await pdf.getPage(pageNumber);

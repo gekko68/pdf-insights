@@ -3,6 +3,12 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import PDFHighlightOverlay from './PDFHighlightOverlay';
 import ReactDOM from 'react-dom';
 
+interface HighlightConfig {
+  fillColor: string;
+  borderColor: string;
+  opacity: number;
+}
+
 interface PDFViewerProps {
   pdfFile: File | null;
   pdfData: Uint8Array | null;
@@ -13,6 +19,7 @@ interface PDFViewerProps {
   highlightRects: any[];
   handlePageRenderSuccess: () => void;
   handleFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  highlightConfig?: HighlightConfig;
 }
 
 const PDFViewer: React.FC<PDFViewerProps> = ({
@@ -25,6 +32,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
   highlightRects,
   handlePageRenderSuccess,
   handleFileChange,
+  highlightConfig,
 }) => (
   <div className="App">
     <h1>PDF Viewer</h1>
@@ -48,11 +56,11 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
               const pageElem = document.querySelector('.react-pdf__Page');
               if (pageElem) {
                 return ReactDOM.createPortal(
-                  <PDFHighlightOverlay rects={highlightRects} />, pageElem
+                  <PDFHighlightOverlay rects={highlightRects} config={highlightConfig} />, pageElem
                 );
               }
               // Fallback: render as before (may be misaligned)
-              return <PDFHighlightOverlay rects={highlightRects} />;
+              return <PDFHighlightOverlay rects={highlightRects} config={highlightConfig} />;
             })()
           )}
         </Document>

@@ -13,6 +13,7 @@ import LLMAnnotationsTab from './components/tabs/LLMAnnotationsTab';
 import SidePanel from './components/SidePanel';
 import PDFViewer from './components/PDFViewer';
 import Toolbar, { ToolType } from './components/Toolbar';
+import LeftSidebar, { HighlightConfig } from './components/LeftSidebar';
 import { formatPdfDate } from './utils/pdfUtils';
 import { usePdfData } from './hooks/usePdfData';
 import { useHighlights } from './hooks/useHighlights';
@@ -32,6 +33,7 @@ function App() {
   const [activeTool, setActiveTool] = useState<ToolType>('select');
   const [pageNumber, setPageNumber] = useState<number>(1);
   const [panelOpen, setPanelOpen] = useState<boolean>(false);
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<string>('metadata');
   const [selectedText, setSelectedText] = useState<string>('');
   const [commentInput, setCommentInput] = useState<string>('');
@@ -45,6 +47,11 @@ function App() {
   const { highlightRects, setHighlightRects } = useHighlights();
   const [selectedObject, setSelectedObject] = useState<{ type: 'text' | 'image'; index: number } | null>(null);
   const [objectSubTab, setObjectSubTab] = React.useState<'text' | 'images'>('text');
+  const [highlightConfig, setHighlightConfig] = useState<HighlightConfig>({
+    fillColor: '#ff0000',
+    borderColor: '#b00000',
+    opacity: 0.8,
+  });
 
   // Use the custom hook for all PDF data and objects
   const {
@@ -231,70 +238,76 @@ function App() {
   React.useEffect(() => {
     if (activeTab === 'customer') {
       setHighlightRects([]); // Clear previous highlights
-      if (selectedCommentIndex !== null && commentsForPage[selectedCommentIndex] && commentsForPage[selectedCommentIndex].offsets) {
-        // Add a small delay to ensure the text layer is fully rendered
-        const timeoutId = setTimeout(() => {
-          const { start, end } = commentsForPage[selectedCommentIndex].offsets;
-          const textLayer = document.querySelector('.react-pdf__Page__textContent');
-          const pageContainer = document.querySelector('.react-pdf__Page');
 
-          if (textLayer && pageContainer) {
-            const pageRect = pageContainer.getBoundingClientRect();
-            const spans = Array.from(textLayer.querySelectorAll('span'));
-            let currOffset = 0;
-            let rangeStartNode: ChildNode | null = null, rangeStartOffset = 0;
-            let rangeEndNode: ChildNode | null = null, rangeEndOffset = 0;
-            for (let i = 0; i < spans.length; i++) {
-              const span = spans[i];
-              const spanText = span.textContent || '';
-              const spanStart = currOffset;
-              const spanEnd = currOffset + spanText.length;
-              // Find start node/offset
-              if (!rangeStartNode && start >= spanStart && start <= spanEnd) {
-                rangeStartNode = span.firstChild;
-                rangeStartOffset = start - spanStart;
+      if (selectedCommentIndex !== null) {
+        const comment = commentsForPage[selectedCommentIndex];
+        if (comment && comment.offsets) {
+          // Add a small delay to ensure the text layer is fully rendered
+          const timeoutId = setTimeout(() => {
+            const { start, end } = comment.offsets;
+            const textLayer = document.querySelector('.react-pdf__Page__textContent');
+            const pageContainer = document.querySelector('.react-pdf__Page');
+
+            if (textLayer && pageContainer) {
+              const pageRect = pageContainer.getBoundingClientRect();
+              const spans = Array.from(textLayer.querySelectorAll('span'));
+              let currOffset = 0;
+              let rangeStartNode: ChildNode | null = null, rangeStartOffset = 0;
+              let rangeEndNode: ChildNode | null = null, rangeEndOffset = 0;
+
+              for (let i = 0; i < spans.length; i++) {
+                const span = spans[i];
+                const spanText = span.textContent || '';
+                const spanStart = currOffset;
+                const spanEnd = currOffset + spanText.length;
+                // Find start node/offset
+                if (!rangeStartNode && start >= spanStart && start <= spanEnd) {
+                  rangeStartNode = span.firstChild;
+                  rangeStartOffset = start - spanStart;
+                }
+                // Find end node/offset
+                if (!rangeEndNode && end >= spanStart && end <= spanEnd) {
+                  rangeEndNode = span.firstChild;
+                  rangeEndOffset = end - spanStart;
+                }
+                currOffset += spanText.length;
               }
-              // Find end node/offset
-              if (!rangeEndNode && end >= spanStart && end <= spanEnd) {
-                rangeEndNode = span.firstChild;
-                rangeEndOffset = end - spanStart;
+
+              if (rangeStartNode && rangeEndNode) {
+                const range = document.createRange();
+                try {
+                  range.setStart(rangeStartNode, rangeStartOffset);
+                  range.setEnd(rangeEndNode, rangeEndOffset);
+                  const rects = Array.from(range.getClientRects());
+
+                  // Adjust rects to be relative to the PDF page container
+                  const adjustedRects = rects.map(rect => ({
+                    left: rect.left - pageRect.left,
+                    top: rect.top - pageRect.top,
+                    width: rect.width,
+                    height: rect.height,
+                    right: rect.right - pageRect.left,
+                    bottom: rect.bottom - pageRect.top,
+                    x: rect.left - pageRect.left,
+                    y: rect.top - pageRect.top,
+                    toJSON: () => ({})
+                  }));
+
+                  setHighlightRects(adjustedRects);
+                } catch (e) {
+                  console.error('Error highlighting annotation:', e);
+                  setHighlightRects([]);
+                }
               }
-              currOffset += spanText.length;
             }
+          }, 100); // Small delay to ensure DOM is ready
 
-            if (rangeStartNode && rangeEndNode) {
-              const range = document.createRange();
-              try {
-                range.setStart(rangeStartNode, rangeStartOffset);
-                range.setEnd(rangeEndNode, rangeEndOffset);
-                const rects = Array.from(range.getClientRects());
-
-                // Adjust rects to be relative to the PDF page container
-                const adjustedRects = rects.map(rect => ({
-                  left: rect.left - pageRect.left,
-                  top: rect.top - pageRect.top,
-                  width: rect.width,
-                  height: rect.height,
-                  right: rect.right - pageRect.left,
-                  bottom: rect.bottom - pageRect.top,
-                  x: rect.left - pageRect.left,
-                  y: rect.top - pageRect.top,
-                  toJSON: () => ({})
-                }));
-
-                setHighlightRects(adjustedRects);
-              } catch (e) {
-                console.error('Error highlighting annotation:', e);
-                setHighlightRects([]);
-              }
-            }
-          }
-        }, 100); // Small delay to ensure DOM is ready
-
-        return () => clearTimeout(timeoutId);
+          return () => clearTimeout(timeoutId);
+        }
       }
     }
-  }, [selectedCommentIndex, commentsForPage, pageNumber, activeTab, setHighlightRects]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCommentIndex, pageNumber, activeTab, comments]);
 
   // Call extractPageObjects on page change
   React.useEffect(() => {
@@ -381,6 +394,14 @@ function App() {
 
   return (
     <div>
+      {/* Left Sidebar */}
+      <LeftSidebar
+        isOpen={leftSidebarOpen}
+        onToggle={() => setLeftSidebarOpen(!leftSidebarOpen)}
+        highlightConfig={highlightConfig}
+        onHighlightConfigChange={setHighlightConfig}
+      />
+
       {/* Toolbar - only show when PDF is loaded */}
       {pdfData && (
         <Toolbar activeTool={activeTool} onToolChange={handleToolChange} />
@@ -400,7 +421,13 @@ function App() {
         renderPanelContent={renderPanelContent}
       />
       {/* Main content */}
-      <div className={`main-content${panelOpen ? ' with-panel' : ''}`} style={{ transition: 'margin-right 0.3s' }}>
+      <div
+        className={`main-content${panelOpen ? ' with-panel' : ''}${leftSidebarOpen ? ' with-left-sidebar' : ''}`}
+        style={{
+          transition: 'margin-right 0.3s, margin-left 0.3s',
+          marginLeft: leftSidebarOpen ? '320px' : '0',
+        }}
+      >
         <PDFViewer
           pdfFile={pdfFile}
           pdfData={pdfData}
@@ -411,30 +438,9 @@ function App() {
           highlightRects={highlightRects}
           handlePageRenderSuccess={handlePageRenderSuccess}
           handleFileChange={handleFileChange}
+          highlightConfig={highlightConfig}
         />
       </div>
-      {/* Highlight style */}
-      <style>{`
-        .pdf-highlight {
-          background: yellow !important;
-          color: #222 !important;
-          border-radius: 2px;
-        }
-        .pdf-precise-highlight {
-          background: yellow !important;
-          opacity: 0.5;
-          pointer-events: none;
-          position: absolute;
-          z-index: 10;
-          border-radius: 2px;
-        }
-        mark.pdf-highlight {
-          background: yellow !important;
-          color: #222 !important;
-          border-radius: 2px;
-          padding: 0;
-        }
-      `}</style>
       <style>{`
         ul::-webkit-scrollbar {
           width: 10px;
