@@ -12,6 +12,7 @@ import CustomerAnnotationsTab from './components/tabs/CustomerAnnotationsTab';
 import LLMAnnotationsTab from './components/tabs/LLMAnnotationsTab';
 import SidePanel from './components/SidePanel';
 import PDFViewer from './components/PDFViewer';
+import Toolbar, { ToolType } from './components/Toolbar';
 import { formatPdfDate } from './utils/pdfUtils';
 import { usePdfData } from './hooks/usePdfData';
 import { useHighlights } from './hooks/useHighlights';
@@ -28,6 +29,7 @@ const PANEL_TABS = [
 ];
 
 function App() {
+  const [activeTool, setActiveTool] = useState<ToolType>('select');
   const [pageNumber, setPageNumber] = useState<number>(1);
   const [panelOpen, setPanelOpen] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<string>('metadata');
@@ -95,8 +97,14 @@ function App() {
   }
 
   // When user selects text, compute and store absolute character offsets
+  // Only active when the "select" tool is selected
   React.useEffect(() => {
     function handleTextSelection(e: MouseEvent) {
+      // Only process text selection if the select tool is active
+      if (activeTool !== 'select') {
+        return;
+      }
+
       const selection = window.getSelection();
       const activeElem = document.activeElement;
       if (selection && selection.toString().trim()) {
@@ -119,7 +127,7 @@ function App() {
               const spanText = spans[i].textContent || '';
               spanOffsets.push({start: currOffset, end: currOffset + spanText.length});
               currOffset += spanText.length;
-             
+
             }
             // Find start and end offsets
             let selStart = -1, selEnd = -1;
@@ -165,7 +173,7 @@ function App() {
     }
     document.addEventListener('mouseup', handleTextSelection);
     return () => document.removeEventListener('mouseup', handleTextSelection);
-  }, [pageNumber]);
+  }, [pageNumber, activeTool]);
 
   // Track when user is interacting with the comment form
   function handleFormMouseDown() {
@@ -215,64 +223,75 @@ function App() {
   }
 
   // Filter comments for the current page
-  const commentsForPage = comments.filter(c => c.page === pageNumber);
-  console.log('Current page:', pageNumber, 'Comments for page:', commentsForPage);
+  const commentsForPage = React.useMemo(() => {
+    return comments.filter(c => c.page === pageNumber);
+  }, [comments, pageNumber]);
 
   // Ensure highlights update when a comment is selected or page changes
   React.useEffect(() => {
     if (activeTab === 'customer') {
       setHighlightRects([]); // Clear previous highlights
       if (selectedCommentIndex !== null && commentsForPage[selectedCommentIndex] && commentsForPage[selectedCommentIndex].offsets) {
-        const { start, end } = commentsForPage[selectedCommentIndex].offsets;
-        const textLayer = document.querySelector('.react-pdf__Page__textContent');
-        const pageContainer = document.querySelector('.react-pdf__Page');
-        if (textLayer && pageContainer) {
-          const pageRect = pageContainer.getBoundingClientRect();
-          const spans = Array.from(textLayer.querySelectorAll('span'));
-          let currOffset = 0;
-          let rangeStartNode: ChildNode | null = null, rangeStartOffset = 0;
-          let rangeEndNode: ChildNode | null = null, rangeEndOffset = 0;
-          for (let i = 0; i < spans.length; i++) {
-            const span = spans[i];
-            const spanText = span.textContent || '';
-            const spanStart = currOffset;
-            const spanEnd = currOffset + spanText.length;
-            // Find start node/offset
-            if (!rangeStartNode && start >= spanStart && start <= spanEnd) {
-              rangeStartNode = span.firstChild;
-              rangeStartOffset = start - spanStart;
+        // Add a small delay to ensure the text layer is fully rendered
+        const timeoutId = setTimeout(() => {
+          const { start, end } = commentsForPage[selectedCommentIndex].offsets;
+          const textLayer = document.querySelector('.react-pdf__Page__textContent');
+          const pageContainer = document.querySelector('.react-pdf__Page');
+
+          if (textLayer && pageContainer) {
+            const pageRect = pageContainer.getBoundingClientRect();
+            const spans = Array.from(textLayer.querySelectorAll('span'));
+            let currOffset = 0;
+            let rangeStartNode: ChildNode | null = null, rangeStartOffset = 0;
+            let rangeEndNode: ChildNode | null = null, rangeEndOffset = 0;
+            for (let i = 0; i < spans.length; i++) {
+              const span = spans[i];
+              const spanText = span.textContent || '';
+              const spanStart = currOffset;
+              const spanEnd = currOffset + spanText.length;
+              // Find start node/offset
+              if (!rangeStartNode && start >= spanStart && start <= spanEnd) {
+                rangeStartNode = span.firstChild;
+                rangeStartOffset = start - spanStart;
+              }
+              // Find end node/offset
+              if (!rangeEndNode && end >= spanStart && end <= spanEnd) {
+                rangeEndNode = span.firstChild;
+                rangeEndOffset = end - spanStart;
+              }
+              currOffset += spanText.length;
             }
-            // Find end node/offset
-            if (!rangeEndNode && end >= spanStart && end <= spanEnd) {
-              rangeEndNode = span.firstChild;
-              rangeEndOffset = end - spanStart;
+
+            if (rangeStartNode && rangeEndNode) {
+              const range = document.createRange();
+              try {
+                range.setStart(rangeStartNode, rangeStartOffset);
+                range.setEnd(rangeEndNode, rangeEndOffset);
+                const rects = Array.from(range.getClientRects());
+
+                // Adjust rects to be relative to the PDF page container
+                const adjustedRects = rects.map(rect => ({
+                  left: rect.left - pageRect.left,
+                  top: rect.top - pageRect.top,
+                  width: rect.width,
+                  height: rect.height,
+                  right: rect.right - pageRect.left,
+                  bottom: rect.bottom - pageRect.top,
+                  x: rect.left - pageRect.left,
+                  y: rect.top - pageRect.top,
+                  toJSON: () => ({})
+                }));
+
+                setHighlightRects(adjustedRects);
+              } catch (e) {
+                console.error('Error highlighting annotation:', e);
+                setHighlightRects([]);
+              }
             }
-            currOffset += spanText.length;
           }
-          if (rangeStartNode && rangeEndNode) {
-            const range = document.createRange();
-            try {
-              range.setStart(rangeStartNode, rangeStartOffset);
-              range.setEnd(rangeEndNode, rangeEndOffset);
-              const rects = Array.from(range.getClientRects());
-              // Adjust rects to be relative to the PDF page container
-              const adjustedRects = rects.map(rect => ({
-                left: rect.left - pageRect.left,
-                top: rect.top - pageRect.top,
-                width: rect.width,
-                height: rect.height,
-                right: rect.right - pageRect.left,
-                bottom: rect.bottom - pageRect.top,
-                x: rect.left - pageRect.left,
-                y: rect.top - pageRect.top,
-                toJSON: () => ({})
-              }));
-              setHighlightRects(adjustedRects);
-            } catch (e) {
-              setHighlightRects([]);
-            }
-          }
-        }
+        }, 100); // Small delay to ensure DOM is ready
+
+        return () => clearTimeout(timeoutId);
       }
     }
   }, [selectedCommentIndex, commentsForPage, pageNumber, activeTab, setHighlightRects]);
@@ -344,8 +363,28 @@ function App() {
     }
   };
 
+  // Handle tool change
+  const handleToolChange = (tool: ToolType) => {
+    setActiveTool(tool);
+    // When switching away from select tool, clear any active selection
+    if (tool !== 'select') {
+      setSelectedText('');
+      setCommentInput('');
+      lastSelection.current = '';
+      setPendingOffsets(null);
+      // Only clear browser selection if we're not viewing a comment highlight
+      if (selectedCommentIndex === null) {
+        window.getSelection()?.removeAllRanges();
+      }
+    }
+  };
+
   return (
     <div>
+      {/* Toolbar - only show when PDF is loaded */}
+      {pdfData && (
+        <Toolbar activeTool={activeTool} onToolChange={handleToolChange} />
+      )}
       {/* Open panel button */}
       {!panelOpen && pdfData && (
         <button className="open-panel-btn" onClick={() => setPanelOpen(true)}>

@@ -2,6 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Instructions for Claude
+Please read and understand ALL files in the `/context` directory before making suggestions or generating code. Each file contains specific guidance for different aspects of the project
+
 ## Project Overview
 
 PDF Insights is a React + TypeScript application for analyzing PDF documents. It provides:
