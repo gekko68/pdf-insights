@@ -373,6 +373,7 @@ function App() {
             setHighlightRects={setHighlightRects}
             pdfData={pdfData}
             pageNumber={pageNumber}
+            llmConfig={llmConfig}
           />
         );
       default:

@@ -52,8 +52,12 @@ export function usePdfData() {
   }, []);
 
   const extractPageObjects = useCallback(async (pageNumber: number) => {
+    console.log('=== extractPageObjects called for page', pageNumber, '===');
     setPageObjects({ texts: [], images: [] });
-    if (!pdfData) return;
+    if (!pdfData) {
+      console.log('No pdfData available, returning');
+      return;
+    }
     const loadingTask = pdfjs.getDocument(pdfData.slice().buffer as ArrayBuffer);
     const pdf = await loadingTask.promise;
     const page = await pdf.getPage(pageNumber);
@@ -154,19 +158,37 @@ export function usePdfData() {
               });
 
               const imgData = objs.get(imageName);
-              if (imgData && imgData.data) {
-                // Create canvas to convert image data to data URL
+              console.log('Image data for', imageName, ':', imgData ? 'found' : 'not found');
+
+              if (imgData) {
+                // Create canvas to convert image to data URL
                 const canvas = document.createElement('canvas');
                 canvas.width = imgData.width;
                 canvas.height = imgData.height;
                 const ctx = canvas.getContext('2d');
 
                 if (ctx) {
-                  const imageData = ctx.createImageData(imgData.width, imgData.height);
-                  const data = new Uint8ClampedArray(imgData.data);
-                  imageData.data.set(data);
-                  ctx.putImageData(imageData, 0, 0);
-                  dataUrl = canvas.toDataURL('image/png');
+                  // Check if we have an ImageBitmap (modern PDF.js)
+                  if (imgData.bitmap && imgData.bitmap instanceof ImageBitmap) {
+                    console.log('Using ImageBitmap for', imageName);
+                    ctx.drawImage(imgData.bitmap, 0, 0);
+                    dataUrl = canvas.toDataURL('image/png');
+                    console.log('Successfully created dataUrl from bitmap for', imageName, ', length:', dataUrl.length);
+                  }
+                  // Fallback to raw data if available (older PDF.js)
+                  else if (imgData.data) {
+                    console.log('Using raw data for', imageName);
+                    const imageData = ctx.createImageData(imgData.width, imgData.height);
+                    const data = new Uint8ClampedArray(imgData.data);
+                    imageData.data.set(data);
+                    ctx.putImageData(imageData, 0, 0);
+                    dataUrl = canvas.toDataURL('image/png');
+                    console.log('Successfully created dataUrl from raw data for', imageName, ', length:', dataUrl.length);
+                  } else {
+                    console.log('No bitmap or data available for', imageName);
+                  }
+                } else {
+                  console.log('Failed to get 2d context for', imageName);
                 }
               }
             }
@@ -189,7 +211,7 @@ export function usePdfData() {
           height = Math.abs(transform[3]);
         }
 
-        images.push({
+        const imageObj = {
           index: imageIndex,
           operatorIndex: i,
           bbox: { x, y, width, height },
@@ -197,7 +219,16 @@ export function usePdfData() {
           op,
           name,
           dataUrl
-        } as PDFImageObject);
+        } as PDFImageObject;
+
+        console.log('Pushing image object:', {
+          index: imageIndex,
+          name,
+          hasDataUrl: !!dataUrl,
+          dataUrlLength: dataUrl?.length
+        });
+
+        images.push(imageObj);
         imageIndex++;
       }
     }

@@ -1,5 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
+import ReactDOM from 'react-dom';
 import { PDFPageObjects } from '../../types/pdf';
+import { LLMConfig } from '../../types/llm';
+import ContextMenu, { ContextMenuItem } from '../ContextMenu';
+import LLMAnalysisModal from '../LLMAnalysisModal';
 
 interface PageObjectsTabProps {
   pageObjects: PDFPageObjects;
@@ -17,6 +21,7 @@ interface PageObjectsTabProps {
   setHighlightRects: (rects: any[]) => void;
   pdfData: Uint8Array | null;
   pageNumber: number;
+  llmConfig: LLMConfig;
 }
 
 const PageObjectsTab: React.FC<PageObjectsTabProps> = ({
@@ -29,7 +34,104 @@ const PageObjectsTab: React.FC<PageObjectsTabProps> = ({
   setHighlightRects,
   pdfData,
   pageNumber,
-}) => (
+  llmConfig,
+}) => {
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; imageIndex: number } | null>(null);
+  const [analysisModal, setAnalysisModal] = useState<{ imageIndex: number } | null>(null);
+
+  const handleContextMenu = (e: React.MouseEvent, imageIndex: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY, imageIndex });
+  };
+
+  const handleDownloadImage = async (imageIndex: number) => {
+    const img = pageObjects.images[imageIndex];
+    if (!img.dataUrl) {
+      alert('Image data not available for download');
+      return;
+    }
+
+    const defaultFileName = `image-page${pageNumber}-${imageIndex + 1}.png`;
+
+    try {
+      // Convert data URL to blob
+      const response = await fetch(img.dataUrl);
+      const blob = await response.blob();
+
+      // Try using File System Access API (modern browsers)
+      if ('showSaveFilePicker' in window) {
+        try {
+          const handle = await (window as any).showSaveFilePicker({
+            suggestedName: defaultFileName,
+            types: [
+              {
+                description: 'PNG Image',
+                accept: { 'image/png': ['.png'] },
+              },
+            ],
+          });
+
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+
+          alert('Image saved successfully!');
+          return;
+        } catch (err: any) {
+          // User cancelled the dialog or API not available
+          if (err.name === 'AbortError') {
+            return; // User cancelled, don't show error
+          }
+          console.log('File System Access API failed, falling back to download:', err);
+        }
+      }
+
+      // Fallback: Traditional download method
+      const link = document.createElement('a');
+      link.href = img.dataUrl;
+      link.download = defaultFileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // Clean up blob URL if we created one
+      setTimeout(() => {
+        if (link.href.startsWith('blob:')) {
+          URL.revokeObjectURL(link.href);
+        }
+      }, 100);
+    } catch (error) {
+      console.error('Error downloading image:', error);
+      alert('Failed to download image. Please try again.');
+    }
+  };
+
+  const handleAnalyzeImage = (imageIndex: number) => {
+    const img = pageObjects.images[imageIndex];
+    if (!img.dataUrl) {
+      alert('Image data not available for analysis');
+      return;
+    }
+    setAnalysisModal({ imageIndex });
+  };
+
+  const contextMenuItems: ContextMenuItem[] = contextMenu ? [
+    {
+      label: 'Download Image',
+      icon: '⬇️',
+      onClick: () => handleDownloadImage(contextMenu.imageIndex),
+      disabled: !pageObjects.images[contextMenu.imageIndex]?.dataUrl,
+    },
+    {
+      label: 'Analyze with LLM',
+      icon: '🤖',
+      onClick: () => handleAnalyzeImage(contextMenu.imageIndex),
+      disabled: !pageObjects.images[contextMenu.imageIndex]?.dataUrl,
+    },
+  ] : [];
+
+  return (
   <div>
     <h3>Objects on Page</h3>
     <div style={{ display: 'flex', marginBottom: 12 }}>
@@ -128,7 +230,7 @@ const PageObjectsTab: React.FC<PageObjectsTabProps> = ({
               <li
                 key={i}
                 style={{ background: selectedObject?.type === 'image' && selectedObject?.index === i ? '#ff0' : undefined, color: selectedObject?.type === 'image' && selectedObject?.index === i ? '#222' : undefined, cursor: hasPosition ? 'pointer' : 'not-allowed', opacity: hasPosition ? 1 : 0.6 }}
-                onClick={hasPosition ? () => { 
+                onClick={hasPosition ? () => {
                   setSelectedObject({ type: 'image', index: i });
                   setTimeout(() => {
                     highlightSelectedObject({
@@ -140,11 +242,12 @@ const PageObjectsTab: React.FC<PageObjectsTabProps> = ({
                     });
                   }, 100);
                 } : undefined}
+                onContextMenu={(e) => handleContextMenu(e, i)}
               >
                 Image #{i + 1} (op: {img.operatorIndex})
                 {img.bbox && (
                   <div style={{ fontSize: '0.8em', color: '#aaa', marginTop: '2px' }}>
-                    Pos: ({Math.round(img.bbox.x)}, {Math.round(img.bbox.y)}) 
+                    Pos: ({Math.round(img.bbox.x)}, {Math.round(img.bbox.y)})
                     Size: {Math.round(img.bbox.width)}×{Math.round(img.bbox.height)}
                     {!hasPosition && (
                       <span
@@ -163,7 +266,31 @@ const PageObjectsTab: React.FC<PageObjectsTabProps> = ({
         </ul>
       </div>
     )}
+
+    {/* Context Menu - Rendered via Portal */}
+    {contextMenu && ReactDOM.createPortal(
+      <ContextMenu
+        x={contextMenu.x}
+        y={contextMenu.y}
+        items={contextMenuItems}
+        onClose={() => setContextMenu(null)}
+      />,
+      document.body
+    )}
+
+    {/* LLM Analysis Modal - Rendered via Portal */}
+    {analysisModal && ReactDOM.createPortal(
+      <LLMAnalysisModal
+        isOpen={true}
+        onClose={() => setAnalysisModal(null)}
+        imageDataUrl={pageObjects.images[analysisModal.imageIndex]?.dataUrl || ''}
+        imageName={`Image #${analysisModal.imageIndex + 1} (Page ${pageNumber})`}
+        llmConfig={llmConfig}
+      />,
+      document.body
+    )}
   </div>
 );
+};
 
 export default PageObjectsTab; 

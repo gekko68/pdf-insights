@@ -20,6 +20,8 @@ export interface PDFImageObject {
   };
   transform: number[];
   op?: number; // Optional: PDF operator type for debugging
+  name?: string; // Optional: image name from PDF resources
+  dataUrl?: string; // Optional: base64 data URL of the image
 }
 
 export interface PDFPageObjects {
